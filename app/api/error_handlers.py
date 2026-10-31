@@ -45,7 +45,7 @@ def register_error_handlers(app: FastAPI) -> None:
         return create_problem_detail(
             type_uri="https://erp-automotive.pe/errors/validation-error",
             title="Unprocessable Entity",
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Request validation failed",
             extra={"invalid_params": exc.errors()},
         )

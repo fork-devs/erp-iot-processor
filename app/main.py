@@ -4,6 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.error_handlers import register_error_handlers
 from app.api.v1.diagnostics import router as diagnostics_router
 from app.api.v1.health import router as health_router
+from app.api.v1.metrics import router as metrics_router
+from app.api.v1.telemetry_queries import router as telemetry_queries_router
 from app.core.config import get_settings
 from app.core.lifespan import lifespan
 from app.core.logging import setup_logging
@@ -34,7 +36,10 @@ register_error_handlers(app)
 
 # Include API routers
 app.include_router(health_router)
+app.include_router(metrics_router)
 app.include_router(diagnostics_router)
+app.include_router(telemetry_queries_router, prefix="/api/v1/vehicles")
+app.include_router(telemetry_queries_router, prefix="/api/v1/iot/vehicles")
 
 
 @app.get("/", include_in_schema=False)

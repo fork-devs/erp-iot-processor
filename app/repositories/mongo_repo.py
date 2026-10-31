@@ -81,6 +81,38 @@ class MongoRepository:
             results.append(DiagnosticAlert.model_validate(doc))
         return results
 
+    async def get_paginated_alerts(
+        self,
+        tenant_id: str,
+        vehicle_id: str,
+        page: int = 0,
+        size: int = 20,
+        severity: Optional[str] = None,
+    ) -> List[DiagnosticAlert]:
+        """Query historical alerts for a vehicle with pagination and optional severity filter."""
+        if self._db is None:
+            raise RuntimeError("MongoRepository database is not initialized")
+
+        filter_doc: Dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "vehicle_id": vehicle_id,
+        }
+        if severity:
+            filter_doc["severity"] = severity.upper()
+
+        offset = max(0, page) * size
+        cursor = (
+            self._db.diagnostic_alerts.find(filter_doc)
+            .sort("timestamp", -1)
+            .skip(offset)
+            .limit(size)
+        )
+        results = []
+        async for doc in cursor:
+            doc.pop("_id", None)
+            results.append(DiagnosticAlert.model_validate(doc))
+        return results
+
     async def health_check(self) -> bool:
         """Verify MongoDB connectivity by executing ping command."""
         if not self._client:

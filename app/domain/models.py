@@ -78,3 +78,36 @@ class VehicleTwinState(BaseModel):
     active_alerts: List[DiagnosticAlert] = Field(default_factory=list)
     overall_status: VehicleHealthStatus = VehicleHealthStatus.HEALTHY
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class TelemetrySnapshotItem(BaseModel):
+    time: datetime
+    vehicle_id: str
+    device_id: str
+    speed_kmh: float
+    engine_rpm: int
+    coolant_temp_c: Optional[int] = None
+    battery_voltage: Optional[float] = None
+    fuel_level_percent: Optional[float] = None
+
+
+class DtcAlertItem(BaseModel):
+    id: str
+    vehicle_id: str
+    dtc_code: str
+    description: str
+    severity: str
+    created_at: datetime
+    telemetry_snapshot_id: Optional[str] = None
+
+
+class DtcAlertTriggeredEvent(BaseModel):
+    event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    event_type: str = "DtcAlertTriggered"
+    tenant_id: str
+    vehicle_id: str
+    dtc_code: str
+    severity: str
+    description: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+

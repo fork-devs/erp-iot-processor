@@ -6,8 +6,12 @@ from typing import Any, List, Optional
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from pydantic import ValidationError
 
+from app.api.v1.metrics import (
+    KAFKA_ALERTS_EMITTED_TOTAL,
+    TELEMETRY_MESSAGES_PROCESSED_TOTAL,
+)
 from app.core.config import Settings, get_settings
-from app.domain.models import TelemetryPacket
+from app.domain.models import DiagnosticAlert, DtcAlertTriggeredEvent, TelemetryPacket
 from app.services.processor_service import ProcessorService
 
 logger = logging.getLogger(__name__)
@@ -107,7 +111,10 @@ class KafkaConsumerWorker:
 
                 if valid_packets:
                     try:
-                        await self._service.process_batch(valid_packets)
+                        result = await self._service.process_batch(valid_packets)
+                        alerts = getattr(result, "alerts", None)
+                        if alerts:
+                            await self._publish_alerts(alerts)
                     except Exception as e:
                         logger.error(f"Error processing telemetry batch: {e}", exc_info=True)
                         # We don't commit offsets on unexpected DB failure so Kafka can retry
@@ -121,6 +128,31 @@ class KafkaConsumerWorker:
             except Exception as err:
                 logger.error(f"Unexpected error in Kafka consume loop: {err}", exc_info=True)
                 await asyncio.sleep(1.0)
+
+    async def _publish_alerts(self, alerts: List[DiagnosticAlert]) -> None:
+        """Publish DtcAlertTriggeredEvent for each alert to Kafka iot.alerts topic."""
+        if not self._producer or not alerts:
+            return
+        for alert in alerts:
+            event = DtcAlertTriggeredEvent(
+                tenant_id=alert.tenant_id,
+                vehicle_id=alert.vehicle_id,
+                dtc_code=alert.code,
+                severity=alert.severity.value if hasattr(alert.severity, "value") else str(alert.severity),
+                description=alert.description or alert.title,
+                timestamp=alert.timestamp,
+            )
+            try:
+                await self._producer.send_and_wait(
+                    self._settings.KAFKA_ALERTS_TOPIC,
+                    event.model_dump_json().encode("utf-8"),
+                )
+                KAFKA_ALERTS_EMITTED_TOTAL.labels(severity=event.severity).inc()
+            except Exception as e:
+                logger.error(
+                    f"Failed to publish DtcAlertTriggeredEvent for vehicle {alert.vehicle_id}: {e}",
+                    exc_info=True,
+                )
 
     async def _route_to_dlq(self, msg: Any, error_detail: str) -> None:
         """Route unparseable or schema-violating payload to dead-letter queue."""
@@ -139,5 +171,6 @@ class KafkaConsumerWorker:
                 self._settings.KAFKA_DLQ_TOPIC,
                 json.dumps(dlq_event).encode("utf-8"),
             )
+            TELEMETRY_MESSAGES_PROCESSED_TOTAL.labels(status="dlq").inc()
         except Exception as e:
             logger.error(f"Failed to route message to DLQ: {e}")
