@@ -113,6 +113,38 @@ class MongoRepository:
             results.append(DiagnosticAlert.model_validate(doc))
         return results
 
+    async def get_registration_alerts(
+        self,
+        tenant_id: str,
+        registration_id: str,
+        page: int = 0,
+        size: int = 20,
+    ) -> List[DiagnosticAlert]:
+        """Query historical alerts for a device registration with pagination."""
+        if self._db is None:
+            raise RuntimeError("MongoRepository database is not initialized")
+
+        filter_doc: Dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "$or": [
+                {"vehicle_id": registration_id},
+                {"device_id": registration_id},
+                {"registration_id": registration_id},
+            ],
+        }
+        offset = max(0, page) * size
+        cursor = (
+            self._db.diagnostic_alerts.find(filter_doc)
+            .sort("timestamp", -1)
+            .skip(offset)
+            .limit(size)
+        )
+        results = []
+        async for doc in cursor:
+            doc.pop("_id", None)
+            results.append(DiagnosticAlert.model_validate(doc))
+        return results
+
     async def health_check(self) -> bool:
         """Verify MongoDB connectivity by executing ping command."""
         if not self._client:

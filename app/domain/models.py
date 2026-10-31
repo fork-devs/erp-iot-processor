@@ -111,3 +111,19 @@ class DtcAlertTriggeredEvent(BaseModel):
     description: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+
+class TelemetrySnapshotResource(BaseModel):
+    id: Optional[str] = None
+    obd2DeviceRegistrationId: Optional[str] = None
+    branchId: Optional[str] = None
+    deviceId: Optional[str] = None
+    vehicleId: Optional[str] = None
+    rpm: int = 0
+    temperature: Optional[int] = None
+    speedKmh: float = 0.0
+    odometerKm: Optional[float] = None
+    fuelLevelPercent: Optional[float] = None
+    batteryVoltage: Optional[float] = None
+    createdAt: datetime
+
+

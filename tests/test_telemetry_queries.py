@@ -6,7 +6,7 @@ import pytest
 
 from app.api.deps import get_mongo_repo, get_timescale_repo
 from app.api.error_handlers import register_error_handlers
-from app.api.v1.telemetry_queries import router as telemetry_queries_router
+from app.api.v1.telemetry_queries import router as telemetry_queries_router, device_router
 from app.domain.models import DiagnosticAlert, DiagnosticSeverity
 
 
@@ -14,21 +14,21 @@ from app.domain.models import DiagnosticAlert, DiagnosticSeverity
 def mock_timescale_repo():
     repo = AsyncMock()
     now = datetime.now(timezone.utc)
-    repo.get_vehicle_snapshots = AsyncMock(
-        return_value=[
-            {
-                "time": now,
-                "tenant_id": "00000000-0000-0000-0000-000000000001",
-                "vehicle_id": "11111111-1111-1111-1111-111111111111",
-                "device_id": "OBD-01",
-                "speed_kmh": 65.5,
-                "engine_rpm": 2200,
-                "coolant_temp_c": 90,
-                "battery_voltage": 13.8,
-                "fuel_level_percent": 55.0,
-            }
-        ]
-    )
+    sample_snapshot = {
+        "time": now,
+        "tenant_id": "00000000-0000-0000-0000-000000000001",
+        "vehicle_id": "11111111-1111-1111-1111-111111111111",
+        "device_id": "OBD-01",
+        "speed_kmh": 65.5,
+        "engine_rpm": 2200,
+        "coolant_temp_c": 90,
+        "battery_voltage": 13.8,
+        "fuel_level_percent": 55.0,
+    }
+    repo.get_vehicle_snapshots = AsyncMock(return_value=[sample_snapshot])
+    repo.get_device_snapshots = AsyncMock(return_value=[sample_snapshot])
+    repo.get_latest_device_snapshot = AsyncMock(return_value=sample_snapshot)
+    repo.get_registration_snapshots = AsyncMock(return_value=[sample_snapshot])
     return repo
 
 
@@ -36,20 +36,18 @@ def mock_timescale_repo():
 def mock_mongo_repo():
     repo = AsyncMock()
     now = datetime.now(timezone.utc)
-    repo.get_paginated_alerts = AsyncMock(
-        return_value=[
-            DiagnosticAlert(
-                id="alert-1",
-                tenant_id="00000000-0000-0000-0000-000000000001",
-                vehicle_id="11111111-1111-1111-1111-111111111111",
-                timestamp=now,
-                code="P0300",
-                severity=DiagnosticSeverity.CRITICAL,
-                title="Misfire Detected",
-                description="Random cylinder misfire",
-            )
-        ]
+    sample_alert = DiagnosticAlert(
+        id="alert-1",
+        tenant_id="00000000-0000-0000-0000-000000000001",
+        vehicle_id="11111111-1111-1111-1111-111111111111",
+        timestamp=now,
+        code="P0300",
+        severity=DiagnosticSeverity.CRITICAL,
+        title="Misfire Detected",
+        description="Random cylinder misfire",
     )
+    repo.get_paginated_alerts = AsyncMock(return_value=[sample_alert])
+    repo.get_registration_alerts = AsyncMock(return_value=[sample_alert])
     return repo
 
 
@@ -59,10 +57,12 @@ def test_app(mock_timescale_repo, mock_mongo_repo):
     register_error_handlers(app)
     app.include_router(telemetry_queries_router, prefix="/api/v1/vehicles")
     app.include_router(telemetry_queries_router, prefix="/api/v1/iot/vehicles")
+    app.include_router(device_router)
 
     app.dependency_overrides[get_timescale_repo] = lambda: mock_timescale_repo
     app.dependency_overrides[get_mongo_repo] = lambda: mock_mongo_repo
     return app
+
 
 
 @pytest.mark.asyncio
@@ -181,3 +181,95 @@ async def test_multi_tenant_isolation(test_app: FastAPI, mock_timescale_repo, mo
             size=20,
             severity=None,
         )
+
+
+@pytest.mark.asyncio
+async def test_get_latest_device_snapshot_success(test_app: FastAPI, mock_timescale_repo):
+    transport = httpx.ASGITransport(app=test_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get(
+            "/api/v1/obd2-devices/OBD-01/telemetry-snapshots/latest",
+            headers={"X-Tenant-ID": "00000000-0000-0000-0000-000000000001"},
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["deviceId"] == "OBD-01"
+        assert data["speedKmh"] == 65.5
+        assert data["rpm"] == 2200
+        mock_timescale_repo.get_latest_device_snapshot.assert_awaited_with(
+            tenant_id="00000000-0000-0000-0000-000000000001",
+            device_id="OBD-01",
+        )
+
+
+@pytest.mark.asyncio
+async def test_get_latest_device_snapshot_not_found(test_app: FastAPI, mock_timescale_repo):
+    mock_timescale_repo.get_latest_device_snapshot.return_value = None
+    transport = httpx.ASGITransport(app=test_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get(
+            "/api/v1/obd2-devices/OBD-UNKNOWN/telemetry-snapshots/latest",
+            headers={"X-Tenant-ID": "00000000-0000-0000-0000-000000000001"},
+        )
+        assert res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_device_telemetry_snapshots(test_app: FastAPI, mock_timescale_repo):
+    transport = httpx.ASGITransport(app=test_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get(
+            "/api/v1/obd2-devices/OBD-01/telemetry-snapshots?page=0&size=10",
+            headers={"X-Tenant-ID": "00000000-0000-0000-0000-000000000001"},
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert len(data) == 1
+        assert data[0]["deviceId"] == "OBD-01"
+        mock_timescale_repo.get_device_snapshots.assert_awaited_with(
+            tenant_id="00000000-0000-0000-0000-000000000001",
+            device_id="OBD-01",
+            page=0,
+            size=10,
+        )
+
+
+@pytest.mark.asyncio
+async def test_get_registration_telemetry_snapshots(test_app: FastAPI, mock_timescale_repo):
+    transport = httpx.ASGITransport(app=test_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get(
+            "/api/v1/obd2-device-registrations/reg-123/telemetry-snapshots?page=0&size=10",
+            headers={"X-Tenant-ID": "00000000-0000-0000-0000-000000000001"},
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert len(data) == 1
+        assert data[0]["obd2DeviceRegistrationId"] == "reg-123"
+        mock_timescale_repo.get_registration_snapshots.assert_awaited_with(
+            tenant_id="00000000-0000-0000-0000-000000000001",
+            registration_id="reg-123",
+            page=0,
+            size=10,
+        )
+
+
+@pytest.mark.asyncio
+async def test_get_registration_dtc_alerts(test_app: FastAPI, mock_mongo_repo):
+    transport = httpx.ASGITransport(app=test_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get(
+            "/api/v1/obd2-device-registrations/reg-123/dtc-alerts?page=0&size=10",
+            headers={"X-Tenant-ID": "00000000-0000-0000-0000-000000000001"},
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert len(data) == 1
+        assert data[0]["dtc_code"] == "P0300"
+        mock_mongo_repo.get_registration_alerts.assert_awaited_with(
+            tenant_id="00000000-0000-0000-0000-000000000001",
+            registration_id="reg-123",
+            page=0,
+            size=10,
+        )
+
