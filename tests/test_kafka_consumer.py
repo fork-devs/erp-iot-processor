@@ -4,9 +4,9 @@ import json
 from unittest.mock import AsyncMock, MagicMock
 import pytest
 
-from app.domain.models import GPSLocation, OBDData, TelemetryPacket
+from app.domain.models import DiagnosticAlert, DiagnosticSeverity, GPSLocation, OBDData, TelemetryPacket
 from app.services.kafka_consumer import KafkaConsumerWorker
-from app.services.processor_service import ProcessorService
+from app.services.processor_service import ProcessResult, ProcessorService
 
 
 @pytest.fixture
@@ -108,3 +108,108 @@ async def test_kafka_consumer_valid_and_dlq_routing(sample_packet: TelemetryPack
 
     # Verify consumer committed offsets
     mock_consumer.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_kafka_consumer_publishes_alert_events(sample_packet: TelemetryPacket):
+    mock_service = AsyncMock()
+    alert = DiagnosticAlert(
+        tenant_id=sample_packet.tenant_id,
+        vehicle_id=sample_packet.vehicle_id,
+        code="P0300",
+        severity=DiagnosticSeverity.CRITICAL,
+        title="Random/Multiple Cylinder Misfire Detected",
+        description="Misfire detected",
+    )
+    mock_service.process_batch = AsyncMock(return_value=ProcessResult(1, [alert]))
+
+    valid_payload = sample_packet.model_dump(mode="json")
+    valid_bytes = json.dumps(valid_payload).encode("utf-8")
+
+    mock_msg = MagicMock()
+    mock_msg.value = valid_bytes
+    mock_msg.topic = "telemetry.raw"
+    mock_msg.partition = 0
+    mock_msg.offset = 201
+
+    mock_consumer = AsyncMock()
+    call_count = 0
+
+    async def mock_getmany(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return {"tp-0": [mock_msg]}
+        raise asyncio.CancelledError()
+
+    mock_consumer.getmany = AsyncMock(side_effect=mock_getmany)
+    mock_consumer.commit = AsyncMock()
+
+    mock_producer = AsyncMock()
+    mock_producer.send_and_wait = AsyncMock()
+
+    worker = KafkaConsumerWorker(
+        processor_service=mock_service,
+        consumer=mock_consumer,
+        dlq_producer=mock_producer,
+    )
+
+    worker._running = True
+    await worker._consume_loop()
+
+    # Verify alert event was published to iot.alerts
+    mock_producer.send_and_wait.assert_awaited_once()
+    topic = mock_producer.send_and_wait.await_args[0][0]
+    payload = json.loads(mock_producer.send_and_wait.await_args[0][1].decode("utf-8"))
+
+    assert topic == "iot.alerts"
+    assert payload["event_type"] == "DtcAlertTriggered"
+    assert payload["dtc_code"] == "P0300"
+    assert payload["severity"] == "CRITICAL"
+    assert payload["vehicle_id"] == sample_packet.vehicle_id
+
+
+@pytest.mark.asyncio
+async def test_kafka_consumer_alert_publishing_error_handling(sample_packet: TelemetryPacket):
+    mock_service = AsyncMock()
+    alert = DiagnosticAlert(
+        tenant_id=sample_packet.tenant_id,
+        vehicle_id=sample_packet.vehicle_id,
+        code="P0300",
+        severity=DiagnosticSeverity.CRITICAL,
+        title="Misfire",
+        description="Misfire",
+    )
+    mock_service.process_batch = AsyncMock(return_value=ProcessResult(1, [alert]))
+
+    mock_msg = MagicMock()
+    mock_msg.value = json.dumps(sample_packet.model_dump(mode="json")).encode("utf-8")
+
+    mock_consumer = AsyncMock()
+    call_count = 0
+
+    async def mock_getmany(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return {"tp-0": [mock_msg]}
+        raise asyncio.CancelledError()
+
+    mock_consumer.getmany = AsyncMock(side_effect=mock_getmany)
+    mock_consumer.commit = AsyncMock()
+
+    mock_producer = AsyncMock()
+    mock_producer.send_and_wait = AsyncMock(side_effect=Exception("Kafka broker down"))
+
+    worker = KafkaConsumerWorker(
+        processor_service=mock_service,
+        consumer=mock_consumer,
+        dlq_producer=mock_producer,
+    )
+
+    worker._running = True
+    # Should not raise exception because error is logged and handled
+    await worker._consume_loop()
+    mock_producer.send_and_wait.assert_awaited_once()
+    mock_consumer.commit.assert_awaited_once()
+

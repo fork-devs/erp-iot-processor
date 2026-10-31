@@ -8,6 +8,7 @@ from app.api.deps import get_mongo_repo, get_timescale_repo
 from app.api.error_handlers import register_error_handlers
 from app.api.v1.diagnostics import router as diagnostics_router
 from app.api.v1.health import router as health_router
+from app.api.v1.metrics import router as metrics_router
 from app.domain.models import (
     DiagnosticAlert,
     DiagnosticSeverity,
@@ -38,6 +39,7 @@ def test_app(mock_timescale_repo, mock_mongo_repo):
     app = FastAPI()
     register_error_handlers(app)
     app.include_router(health_router)
+    app.include_router(metrics_router)
     app.include_router(diagnostics_router)
 
     app.dependency_overrides[get_timescale_repo] = lambda: mock_timescale_repo
@@ -127,3 +129,19 @@ async def test_get_diagnostics_success(test_app: FastAPI, mock_mongo_repo):
         assert data["overall_status"] == "WARNING"
         assert "P0171" in data["active_dtcs"]
         assert len(data["active_alerts"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_metrics_endpoint(test_app: FastAPI):
+    transport = httpx.ASGITransport(app=test_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get("/metrics")
+        assert res.status_code == 200
+        assert "text/plain" in res.headers["content-type"]
+        body = res.text
+        assert "iot_processor_messages_processed_total" in body
+        assert "iot_processor_evaluation_latency_seconds" in body
+        assert "iot_processor_timescale_insert_latency_seconds" in body
+        assert "iot_processor_mongo_update_latency_seconds" in body
+        assert "iot_processor_alerts_emitted_total" in body
+

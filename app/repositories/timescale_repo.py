@@ -87,6 +87,47 @@ class TimescaleRepository:
             await conn.executemany(INSERT_BATCH_SQL, records)
         return len(records)
 
+    async def get_vehicle_snapshots(
+        self, tenant_id: str, vehicle_id: str, page: int = 0, size: int = 20
+    ) -> List[dict]:
+        """Fetch historical time-series snapshots for a vehicle with pagination."""
+        if not self._pool:
+            raise RuntimeError("TimescaleRepository pool is not initialized")
+
+        offset = max(0, page) * size
+        query = """
+        SELECT
+            time,
+            tenant_id::text,
+            vehicle_id::text,
+            device_id,
+            speed_kmh,
+            engine_rpm,
+            coolant_temp_c,
+            battery_voltage,
+            fuel_level_percent
+        FROM vehicle_telemetry_history
+        WHERE tenant_id = $1::uuid AND vehicle_id = $2::uuid
+        ORDER BY time DESC
+        LIMIT $3 OFFSET $4;
+        """
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(query, tenant_id, vehicle_id, size, offset)
+            return [
+                {
+                    "time": r["time"],
+                    "tenant_id": r["tenant_id"],
+                    "vehicle_id": r["vehicle_id"],
+                    "device_id": r["device_id"],
+                    "speed_kmh": r["speed_kmh"],
+                    "engine_rpm": r["engine_rpm"],
+                    "coolant_temp_c": r["coolant_temp_c"],
+                    "battery_voltage": r["battery_voltage"],
+                    "fuel_level_percent": r["fuel_level_percent"],
+                }
+                for r in rows
+            ]
+
     async def health_check(self) -> bool:
         """Verify database connectivity."""
         if not self._pool:
