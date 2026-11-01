@@ -1,7 +1,3 @@
-# ==============================================================================
-# Multi-stage Dockerfile for erp-iot-processor using uv
-# ==============================================================================
-
 # Stage 1: Build virtual environment
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
@@ -16,7 +12,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --frozen --no-install-project --no-dev
 
-# Copy application source explicitly (avoid COPY . to prevent leaking non-essential files)
+# Copy application source explicitly
 COPY app/ /app/app/
 COPY main.py pyproject.toml uv.lock README.md /app/
 
@@ -29,10 +25,8 @@ FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
-# Create unprivileged application user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
-# Copy pre-built virtual environment and source code
 COPY --from=builder --chown=appuser:appuser /app /app
 
 ENV PATH="/app/.venv/bin:$PATH" \
