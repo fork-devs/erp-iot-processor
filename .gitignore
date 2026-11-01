@@ -30,3 +30,8 @@ htmlcov/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Local tooling & specifications
+docs/
+openspec/
+.opencode/
