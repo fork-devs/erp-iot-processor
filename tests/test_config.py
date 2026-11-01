@@ -3,7 +3,7 @@ from app.core.config import Settings
 
 
 def test_default_settings():
-    settings = Settings()
+    settings = Settings(_env_file=None)
     assert settings.SERVER_PORT == 8088
     assert settings.ENVIRONMENT == "dev"
     assert "localhost:9092" in settings.kafka_broker_list
@@ -18,7 +18,7 @@ def test_custom_environment_settings(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "prod")
     monkeypatch.setenv("KAFKA_BROKERS", "broker1:9092,broker2:9092")
 
-    settings = Settings()
+    settings = Settings(_env_file=None)
     assert settings.SERVER_PORT == 9090
     assert settings.ENVIRONMENT == "prod"
     assert settings.kafka_broker_list == ["broker1:9092", "broker2:9092"]
