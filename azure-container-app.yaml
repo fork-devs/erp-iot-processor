@@ -1,0 +1,77 @@
+# =============================================================================
+# MANIFIESTO AZURE CONTAINER APPS (ACA) — ERP IOT PROCESSOR
+# =============================================================================
+
+apiVersion: 2024-03-01
+location: eastus2
+name: erp-iot-processor
+type: Microsoft.App/containerApps
+properties:
+  managedEnvironmentId: /subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.App/managedEnvironments/${ACA_ENVIRONMENT_NAME}
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      external: false
+      targetPort: 8088
+      transport: auto
+      allowInsecure: false
+    secrets:
+      - name: timescale-password
+        value: ${TIMESCALE_PASSWORD}
+      - name: mongo-uri
+        value: ${MONGO_URI}
+      - name: jwt-secret-key
+        value: ${JWT_SECRET_KEY}
+  template:
+    containers:
+      - name: erp-iot-processor
+        image: ${ACR_NAME}.azurecr.io/erp-iot-processor:latest
+        resources:
+          cpu: 0.5
+          memory: 0.5Gi
+        env:
+          - name: SERVER_PORT
+            value: "8088"
+          - name: ENVIRONMENT
+            value: "prod"
+          - name: KAFKA_BROKERS
+            value: "erp-kafka-service:9092"
+          - name: TIMESCALE_HOST
+            value: "${TIMESCALE_HOST}"
+          - name: TIMESCALE_PORT
+            value: "${TIMESCALE_PORT}"
+          - name: TIMESCALE_DB
+            value: "${TIMESCALE_DB}"
+          - name: TIMESCALE_USER
+            value: "${TIMESCALE_USER}"
+          - name: TIMESCALE_PASSWORD
+            secretRef: timescale-password
+          - name: TIMESCALE_SSL
+            value: "require"
+          - name: MONGO_URI
+            secretRef: mongo-uri
+          - name: MONGO_DB
+            value: "iot_diagnostics"
+          - name: JWT_SECRET_KEY
+            secretRef: jwt-secret-key
+        probes:
+          - type: Liveness
+            httpGet:
+              path: /health
+              port: 8088
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          - type: Readiness
+            httpGet:
+              path: /health
+              port: 8088
+            initialDelaySeconds: 10
+            periodSeconds: 10
+    scale:
+      minReplicas: 1
+      maxReplicas: 5
+      rules:
+        - name: http-scaling-rule
+          http:
+            metadata:
+              concurrentRequests: "100"
