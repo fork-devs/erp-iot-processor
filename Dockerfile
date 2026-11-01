@@ -1,4 +1,4 @@
-# Stage 1: Build virtual environment
+# Build virtual environment
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
 ENV UV_COMPILE_BYTECODE=1 \
@@ -12,7 +12,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --frozen --no-install-project --no-dev
 
-# Copy application source explicitly
+# Copy application source
 COPY app/ /app/app/
 COPY main.py pyproject.toml uv.lock README.md /app/
 
@@ -20,7 +20,7 @@ COPY main.py pyproject.toml uv.lock README.md /app/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
-# Stage 2: Minimal runtime image
+# Runtime
 FROM python:3.12-slim-bookworm
 
 WORKDIR /app
