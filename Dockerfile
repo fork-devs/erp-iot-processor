@@ -14,7 +14,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Copy application source
 COPY app/ /app/app/
-COPY main.py pyproject.toml uv.lock README.md /app/
+COPY main.py pyproject.toml uv.lock /app/
 
 # Install project
 RUN --mount=type=cache,target=/root/.cache/uv \

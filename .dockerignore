@@ -4,6 +4,7 @@
 **/*.pem
 **/*.key
 **/*.md
+!README.md
 .venv/
 __pycache__/
 *.pyc
