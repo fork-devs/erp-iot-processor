@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     TIMESCALE_DB: str = Field(default="erp_telemetry", description="Database name")
     TIMESCALE_USER: str = Field(default="postgres", description="Database user")
     TIMESCALE_PASSWORD: str = Field(default="postgres", description="Database password")
+    TIMESCALE_SSL: str = Field(default="", description="Optional SSL mode (e.g. require)")
+    TIMESCALE_DSN: str = Field(default="", description="Optional full database DSN override")
     TIMESCALE_POOL_MIN: int = Field(default=2, description="Minimum asyncpg connection pool size")
     TIMESCALE_POOL_MAX: int = Field(default=10, description="Maximum asyncpg connection pool size")
 
@@ -51,7 +53,12 @@ class Settings(BaseSettings):
 
     @property
     def timescale_dsn(self) -> str:
-        return f"postgresql://{self.TIMESCALE_USER}:{self.TIMESCALE_PASSWORD}@{self.TIMESCALE_HOST}:{self.TIMESCALE_PORT}/{self.TIMESCALE_DB}"
+        if self.TIMESCALE_DSN:
+            return self.TIMESCALE_DSN
+        base = f"postgresql://{self.TIMESCALE_USER}:{self.TIMESCALE_PASSWORD}@{self.TIMESCALE_HOST}:{self.TIMESCALE_PORT}/{self.TIMESCALE_DB}"
+        if self.TIMESCALE_SSL:
+            return f"{base}?sslmode={self.TIMESCALE_SSL}"
+        return base
 
 
 @lru_cache
