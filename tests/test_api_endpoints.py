@@ -16,6 +16,7 @@ from app.domain.models import (
     VehicleHealthStatus,
     VehicleTwinState,
 )
+from tests.jwt_helpers import make_auth_headers, make_test_jwt
 
 
 @pytest.fixture
@@ -85,12 +86,45 @@ async def test_readyz_unhealthy(test_app: FastAPI, mock_timescale_repo):
 async def test_get_diagnostics_not_found(test_app: FastAPI):
     transport = httpx.ASGITransport(app=test_app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        res = await client.get("/api/v1/iot/diagnostics/non-existent-id")
+        res = await client.get(
+            "/api/v1/iot/diagnostics/non-existent-id",
+            headers=make_auth_headers(),
+        )
         assert res.status_code == 404
         assert res.headers["content-type"] == "application/problem+json"
         data = res.json()
         assert data["status"] == 404
         assert "not found" in data["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_rejects_missing_jwt_and_spoofed_header(test_app: FastAPI):
+    transport = httpx.ASGITransport(app=test_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # Missing auth completely -> 401 (never falls back to ...0001)
+        res = await client.get("/api/v1/iot/diagnostics/vehicle-123")
+        assert res.status_code == 401
+
+        # X-Tenant-ID without Bearer JWT -> 401
+        res2 = await client.get(
+            "/api/v1/iot/diagnostics/vehicle-123",
+            headers={"X-Tenant-ID": "22222222-2222-2222-2222-222222222222"},
+        )
+        assert res2.status_code == 401
+
+        # Mismatched X-Tenant-ID -> 403
+        headers = make_auth_headers("11111111-1111-1111-1111-111111111111")
+        headers["X-Tenant-ID"] = "22222222-2222-2222-2222-222222222222"
+        res3 = await client.get("/api/v1/iot/diagnostics/vehicle-123", headers=headers)
+        assert res3.status_code == 403
+
+        # Nil UUID in JWT -> 401
+        nil_jwt = make_test_jwt("00000000-0000-0000-0000-000000000000")
+        res4 = await client.get(
+            "/api/v1/iot/diagnostics/vehicle-123",
+            headers={"Authorization": f"Bearer {nil_jwt}"},
+        )
+        assert res4.status_code == 401
 
 
 @pytest.mark.asyncio
@@ -122,7 +156,7 @@ async def test_get_diagnostics_success(test_app: FastAPI, mock_mongo_repo):
 
     transport = httpx.ASGITransport(app=test_app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        res = await client.get("/api/v1/iot/diagnostics/vehicle-123", headers={"X-Tenant-ID": "00000000-0000-0000-0000-000000000001"})
+        res = await client.get("/api/v1/iot/diagnostics/vehicle-123", headers=make_auth_headers("00000000-0000-0000-0000-000000000001"))
         assert res.status_code == 200
         data = res.json()
         assert data["vehicle_id"] == "vehicle-123"

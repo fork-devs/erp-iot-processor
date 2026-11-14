@@ -39,6 +39,11 @@ class Settings(BaseSettings):
 
     # Security settings
     JWT_SECRET_KEY: str = Field(default="development-secret-key-32-bytes-min!!", description="JWT validation key")
+    JWKS_URL: str = Field(
+        default="http://erp-auth-service:8081/.well-known/jwks.json",
+        description="JWKS URI for RS256 JWT verification",
+    )
+    JWT_ISSUER: str | None = Field(default=None, description="Optional expected JWT issuer")
 
     model_config = SettingsConfigDict(
         env_file=".env",
