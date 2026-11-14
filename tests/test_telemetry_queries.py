@@ -8,6 +8,7 @@ from app.api.deps import get_mongo_repo, get_timescale_repo
 from app.api.error_handlers import register_error_handlers
 from app.api.v1.telemetry_queries import router as telemetry_queries_router, device_router
 from app.domain.models import DiagnosticAlert, DiagnosticSeverity
+from tests.jwt_helpers import make_auth_headers
 
 
 @pytest.fixture
@@ -71,7 +72,7 @@ async def test_get_telemetry_snapshots_success(test_app: FastAPI, mock_timescale
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         res = await client.get(
             "/api/v1/vehicles/11111111-1111-1111-1111-111111111111/telemetry-snapshots?page=0&size=20",
-            headers={"X-Tenant-ID": "00000000-0000-0000-0000-000000000001"},
+            headers=make_auth_headers("00000000-0000-0000-0000-000000000001"),
         )
         assert res.status_code == 200
         data = res.json()
@@ -92,7 +93,10 @@ async def test_get_telemetry_snapshots_success(test_app: FastAPI, mock_timescale
 async def test_get_telemetry_snapshots_dual_route(test_app: FastAPI):
     transport = httpx.ASGITransport(app=test_app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        res = await client.get("/api/v1/iot/vehicles/11111111-1111-1111-1111-111111111111/telemetry-snapshots")
+        res = await client.get(
+            "/api/v1/iot/vehicles/11111111-1111-1111-1111-111111111111/telemetry-snapshots",
+            headers=make_auth_headers(),
+        )
         assert res.status_code == 200
         assert len(res.json()) == 1
 
@@ -102,12 +106,18 @@ async def test_get_telemetry_snapshots_invalid_pagination(test_app: FastAPI):
     transport = httpx.ASGITransport(app=test_app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         # Negative page
-        res = await client.get("/api/v1/vehicles/11111111-1111-1111-1111-111111111111/telemetry-snapshots?page=-1")
+        res = await client.get(
+            "/api/v1/vehicles/11111111-1111-1111-1111-111111111111/telemetry-snapshots?page=-1",
+            headers=make_auth_headers(),
+        )
         assert res.status_code == 422
         assert res.headers["content-type"] == "application/problem+json"
 
         # Size > 100
-        res2 = await client.get("/api/v1/vehicles/11111111-1111-1111-1111-111111111111/telemetry-snapshots?size=150")
+        res2 = await client.get(
+            "/api/v1/vehicles/11111111-1111-1111-1111-111111111111/telemetry-snapshots?size=150",
+            headers=make_auth_headers(),
+        )
         assert res2.status_code == 422
         assert res2.headers["content-type"] == "application/problem+json"
 
@@ -118,7 +128,7 @@ async def test_get_dtc_alerts_success(test_app: FastAPI, mock_mongo_repo):
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         res = await client.get(
             "/api/v1/vehicles/11111111-1111-1111-1111-111111111111/dtc-alerts?page=0&size=20&severity=CRITICAL",
-            headers={"X-Tenant-ID": "00000000-0000-0000-0000-000000000001"},
+            headers=make_auth_headers("00000000-0000-0000-0000-000000000001"),
         )
         assert res.status_code == 200
         data = res.json()
@@ -140,7 +150,10 @@ async def test_get_dtc_alerts_success(test_app: FastAPI, mock_mongo_repo):
 async def test_get_dtc_alerts_dual_route(test_app: FastAPI):
     transport = httpx.ASGITransport(app=test_app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        res = await client.get("/api/v1/iot/vehicles/11111111-1111-1111-1111-111111111111/dtc-alerts")
+        res = await client.get(
+            "/api/v1/iot/vehicles/11111111-1111-1111-1111-111111111111/dtc-alerts",
+            headers=make_auth_headers(),
+        )
         assert res.status_code == 200
         assert len(res.json()) == 1
 
@@ -155,7 +168,7 @@ async def test_multi_tenant_isolation(test_app: FastAPI, mock_timescale_repo, mo
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         res_ts = await client.get(
             "/api/v1/vehicles/11111111-1111-1111-1111-111111111111/telemetry-snapshots",
-            headers={"X-Tenant-ID": "22222222-2222-2222-2222-222222222222"},
+            headers=make_auth_headers("22222222-2222-2222-2222-222222222222"),
         )
         assert res_ts.status_code == 200
         assert res_ts.json() == []
@@ -169,7 +182,7 @@ async def test_multi_tenant_isolation(test_app: FastAPI, mock_timescale_repo, mo
 
         res_dtc = await client.get(
             "/api/v1/vehicles/11111111-1111-1111-1111-111111111111/dtc-alerts",
-            headers={"X-Tenant-ID": "22222222-2222-2222-2222-222222222222"},
+            headers=make_auth_headers("22222222-2222-2222-2222-222222222222"),
         )
         assert res_dtc.status_code == 200
         assert res_dtc.json() == []
@@ -189,7 +202,7 @@ async def test_get_latest_device_snapshot_success(test_app: FastAPI, mock_timesc
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         res = await client.get(
             "/api/v1/obd2-devices/OBD-01/telemetry-snapshots/latest",
-            headers={"X-Tenant-ID": "00000000-0000-0000-0000-000000000001"},
+            headers=make_auth_headers("00000000-0000-0000-0000-000000000001"),
         )
         assert res.status_code == 200
         data = res.json()
@@ -209,7 +222,7 @@ async def test_get_latest_device_snapshot_not_found(test_app: FastAPI, mock_time
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         res = await client.get(
             "/api/v1/obd2-devices/OBD-UNKNOWN/telemetry-snapshots/latest",
-            headers={"X-Tenant-ID": "00000000-0000-0000-0000-000000000001"},
+            headers=make_auth_headers("00000000-0000-0000-0000-000000000001"),
         )
         assert res.status_code == 404
 
@@ -220,7 +233,7 @@ async def test_get_device_telemetry_snapshots(test_app: FastAPI, mock_timescale_
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         res = await client.get(
             "/api/v1/obd2-devices/OBD-01/telemetry-snapshots?page=0&size=10",
-            headers={"X-Tenant-ID": "00000000-0000-0000-0000-000000000001"},
+            headers=make_auth_headers("00000000-0000-0000-0000-000000000001"),
         )
         assert res.status_code == 200
         data = res.json()
@@ -240,7 +253,7 @@ async def test_get_registration_telemetry_snapshots(test_app: FastAPI, mock_time
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         res = await client.get(
             "/api/v1/obd2-device-registrations/reg-123/telemetry-snapshots?page=0&size=10",
-            headers={"X-Tenant-ID": "00000000-0000-0000-0000-000000000001"},
+            headers=make_auth_headers("00000000-0000-0000-0000-000000000001"),
         )
         assert res.status_code == 200
         data = res.json()
@@ -260,7 +273,7 @@ async def test_get_registration_dtc_alerts(test_app: FastAPI, mock_mongo_repo):
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         res = await client.get(
             "/api/v1/obd2-device-registrations/reg-123/dtc-alerts?page=0&size=10",
-            headers={"X-Tenant-ID": "00000000-0000-0000-0000-000000000001"},
+            headers=make_auth_headers("00000000-0000-0000-0000-000000000001"),
         )
         assert res.status_code == 200
         data = res.json()

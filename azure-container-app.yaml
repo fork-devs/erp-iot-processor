@@ -52,6 +52,8 @@ properties:
             secretRef: mongo-uri
           - name: MONGO_DB
             value: "iot_diagnostics"
+          - name: JWKS_URL
+            value: "http://erp-auth-service:8081/.well-known/jwks.json"
           - name: JWT_SECRET_KEY
             secretRef: jwt-secret-key
         probes:

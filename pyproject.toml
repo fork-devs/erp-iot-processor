@@ -9,6 +9,7 @@ dependencies = [
     "motor>=3.7.1",
     "prometheus-client>=0.26.0",
     "pydantic-settings>=2.16.2",
+    "pyjwt[crypto]>=2.9.0",
 ]
 
 [dependency-groups]
