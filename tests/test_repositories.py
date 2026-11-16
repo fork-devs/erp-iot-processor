@@ -118,19 +118,16 @@ async def test_mongo_repo_save_alerts():
         description="Overrev test",
     )
 
-    mock_insert_res = MagicMock()
-    mock_insert_res.inserted_ids = ["id-1"]
-
     mock_db = MagicMock()
-    mock_db.diagnostic_alerts.insert_many = AsyncMock(return_value=mock_insert_res)
+    mock_db.diagnostic_alerts.find_one_and_update = AsyncMock(return_value=None)
 
     mock_client = MagicMock()
     mock_client.__getitem__.return_value = mock_db
 
     repo = MongoRepository(client=mock_client)
-    count = await repo.save_alerts([alert])
+    count = await repo.save_alerts([alert], telemetry_id="packet-test")
     assert count == 1
-    mock_db.diagnostic_alerts.insert_many.assert_awaited_once()
+    mock_db.diagnostic_alerts.find_one_and_update.assert_awaited_once()
 
 
 @pytest.mark.asyncio
