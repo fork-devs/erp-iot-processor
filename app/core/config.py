@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     MONGO_URI: str = Field(default="mongodb://localhost:27017", description="MongoDB connection string URI")
     MONGO_DB: str = Field(default="iot_diagnostics", description="MongoDB database name")
 
+    FLEET_SERVICE_URL: str = Field(default="http://erp-fleet-service:8083", description="Fleet service base URL")
+
     # Security settings
     JWT_SECRET_KEY: str = Field(default="development-secret-key-32-bytes-min!!", description="JWT validation key")
     JWKS_URL: str = Field(

@@ -1,7 +1,8 @@
+from dataclasses import dataclass
 from uuid import UUID
-from fastapi import HTTPException, Header, Request, status
+from fastapi import Depends, HTTPException, Header, Request, status
 
-from app.core.security import NIL_UUID, verify_access_token_and_extract_tenant
+from app.core.security import NIL_UUID, verify_access_token
 from app.repositories.mongo_repo import MongoRepository
 from app.repositories.timescale_repo import TimescaleRepository
 
@@ -28,12 +29,20 @@ def get_mongo_repo(request: Request) -> MongoRepository:
     return repo
 
 
-def get_current_tenant_id(
+@dataclass(frozen=True)
+class AuthenticatedUser:
+    tenant_id: str
+    subject: str
+    roles: tuple[str, ...]
+    token: str
+
+
+def get_authenticated_user(
     request: Request,
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
-) -> str:
-    """Verify Bearer JWT, extract tenant_id claim, and cross-check optional X-Tenant-ID header."""
+) -> AuthenticatedUser:
+    """Verify JWT and cross-check the optional X-Tenant-ID header."""
     auth_header = authorization or request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         raise HTTPException(
@@ -48,7 +57,8 @@ def get_current_tenant_id(
             detail="Missing Bearer authentication token",
         )
 
-    token_tenant_id = verify_access_token_and_extract_tenant(token)
+    claims = verify_access_token(token)
+    token_tenant_id = claims["tenant_id"]
 
     raw_header_tenant = x_tenant_id or request.headers.get("X-Tenant-ID")
     if raw_header_tenant and raw_header_tenant.strip():
@@ -65,4 +75,14 @@ def get_current_tenant_id(
                 detail="X-Tenant-ID header does not match authenticated token tenant",
             )
 
-    return token_tenant_id
+    roles = claims.get("roles")
+    return AuthenticatedUser(
+        tenant_id=token_tenant_id,
+        subject=claims["sub"],
+        roles=tuple(role for role in roles if isinstance(role, str)) if isinstance(roles, list) else (),
+        token=token,
+    )
+
+
+def get_current_tenant_id(user: AuthenticatedUser = Depends(get_authenticated_user)) -> str:
+    return user.tenant_id

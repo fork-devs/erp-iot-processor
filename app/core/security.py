@@ -33,8 +33,8 @@ def parse_non_nil_uuid(raw_value: Any, detail_on_error: str) -> UUID:
     return parsed
 
 
-def verify_access_token_and_extract_tenant(token: str) -> str:
-    """Verify RS256 JWT signature and claims against JWKS and return non-nil tenant UUID string."""
+def verify_access_token(token: str) -> dict[str, Any]:
+    """Verify RS256 JWT signature and claims, including a non-nil tenant UUID."""
     settings = get_settings()
     try:
         jwk_client = get_jwk_client(settings.JWKS_URL)
@@ -70,4 +70,5 @@ def verify_access_token_and_extract_tenant(token: str) -> str:
             detail="Invalid token type for API access",
         )
 
-    return str(parse_non_nil_uuid(payload.get("tenant_id"), "Token missing valid tenant_id claim"))
+    payload["tenant_id"] = str(parse_non_nil_uuid(payload.get("tenant_id"), "Token missing valid tenant_id claim"))
+    return payload

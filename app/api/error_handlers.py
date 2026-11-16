@@ -1,6 +1,7 @@
 import logging
 from typing import Any, Dict
 from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -47,7 +48,7 @@ def register_error_handlers(app: FastAPI) -> None:
             title="Unprocessable Entity",
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Request validation failed",
-            extra={"invalid_params": exc.errors()},
+            extra={"invalid_params": jsonable_encoder(exc.errors(), custom_encoder={Exception: str})},
         )
 
     @app.exception_handler(Exception)

@@ -1,7 +1,9 @@
 import logging
 from typing import Any, Dict, List, Optional
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+from pymongo.errors import DuplicateKeyError
 from app.domain.models import DiagnosticAlert, VehicleTwinState
+from app.repositories.preventive_alerts import PreventiveAlertRepository
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +21,11 @@ class MongoRepository:
         self._db_name = db_name
         self._db = client[db_name]
 
+    def preventive_alerts(self) -> PreventiveAlertRepository:
+        if self._db is None:
+            raise RuntimeError("MongoRepository database is not initialized")
+        return PreventiveAlertRepository(self._db.diagnostic_alerts)
+
     async def init_indices(self) -> None:
         """Ensure collection indices for efficient lookups."""
         if self._db is None:
@@ -28,6 +35,21 @@ class MongoRepository:
             [("tenant_id", 1), ("vehicle_id", 1)],
             unique=True,
             name="idx_tenant_vehicle_unique",
+        )
+        await self._db.diagnostic_alerts.create_index(
+            [("tenant_id", 1), ("id", 1)], name="idx_alerts_tenant_id",
+        )
+        await self._db.diagnostic_alerts.create_index(
+            [("tenant_id", 1), ("vehicle_id", 1), ("code", 1)],
+            unique=True,
+            partialFilterExpression={"is_active": True},
+            name="idx_active_alert_per_vehicle_code",
+        )
+        await self._db.diagnostic_alerts.create_index(
+            [("tenant_id", 1), ("vehicle_id", 1), ("code", 1), ("event_history.telemetry_id", 1)],
+            unique=True,
+            partialFilterExpression={"event_history.telemetry_id": {"$exists": True}},
+            name="idx_telemetry_occurrence_unique",
         )
         # Search index on diagnostic_alerts
         await self._db.diagnostic_alerts.create_index(
@@ -56,15 +78,59 @@ class MongoRepository:
         doc.pop("_id", None)
         return VehicleTwinState.model_validate(doc)
 
-    async def save_alerts(self, alerts: List[DiagnosticAlert]) -> int:
-        """Persist emitted diagnostic alerts into the historical alert log."""
+    async def save_alerts(self, alerts: List[DiagnosticAlert], telemetry_id: str) -> int:
+        """Group occurrences of the same active condition and deduplicate telemetry retries."""
         if not alerts:
             return 0
         if self._db is None:
             raise RuntimeError("MongoRepository database is not initialized")
-        docs: List[Dict[str, Any]] = [a.model_dump(mode="json") for a in alerts]
-        result = await self._db.diagnostic_alerts.insert_many(docs)
-        return len(result.inserted_ids)
+
+        inserted = 0
+        collection = self._db.diagnostic_alerts
+        for alert in alerts:
+            doc = alert.model_dump(mode="json")
+            identity = {key: doc[key] for key in ("tenant_id", "vehicle_id", "code")}
+            occurrence_query = {**identity, "event_history.telemetry_id": telemetry_id}
+            query = {
+                **identity,
+                "$or": [
+                    {"is_active": True},
+                    {"is_active": {"$exists": False}, "status": {"$in": [None, "PENDING", "IN_REVIEW"]}},
+                ],
+            }
+            occurrence = {
+                "telemetry_id": telemetry_id, "detected_at": doc["timestamp"],
+                "severity": doc["severity"], "sensor_values": doc["sensor_values"],
+            }
+            use_existing_history = {"$ifNull": ["$event_history", []]}
+            initial = {
+                key: {"$ifNull": [f"${key}", {"$literal": value}]}
+                for key, value in doc.items()
+            }
+            update = [{"$set": {
+                **initial,
+                "is_active": True,
+                "status": {"$ifNull": ["$status", "PENDING"]},
+                "event_history": {"$cond": [
+                    {"$in": [{"$literal": telemetry_id}, {"$ifNull": ["$event_history.telemetry_id", []]}]},
+                    use_existing_history,
+                    {"$concatArrays": [use_existing_history, {"$literal": [occurrence]}]},
+                ]},
+            }}]
+            for attempt in range(2):
+                try:
+                    previous = await collection.find_one_and_update(
+                        query, update, sort=[("is_active", -1), ("timestamp", -1)], upsert=True,
+                    )
+                except DuplicateKeyError:
+                    if await collection.find_one(occurrence_query, {"_id": 1}):
+                        break
+                    if attempt == 1:
+                        raise
+                else:
+                    inserted += previous is None
+                    break
+        return inserted
 
     async def get_recent_alerts(self, tenant_id: str, vehicle_id: str, limit: int = 50) -> List[DiagnosticAlert]:
         """Query historical alerts for a vehicle sorted by newest first."""

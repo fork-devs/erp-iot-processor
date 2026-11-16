@@ -73,7 +73,7 @@ class ProcessorService:
             t_mongo = time.perf_counter()
             await self._mongo_repo.upsert_vehicle_twin(twin)
             if alerts:
-                await self._mongo_repo.save_alerts(alerts)
+                await self._mongo_repo.save_alerts(alerts, telemetry_id=packet.id)
                 all_alerts.extend(alerts)
             MONGO_UPDATE_LATENCY_SECONDS.observe(time.perf_counter() - t_mongo)
 
