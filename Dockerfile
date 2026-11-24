@@ -1,11 +1,9 @@
 # Build virtual environment
-FROM python:3.12-slim-bookworm AS builder
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
-    UV_PYTHON_DOWNLOADS=never \
-    UV_PYTHON_PREFERENCE=only-system
+    UV_PYTHON_INSTALL_DIR=/opt/python
 
 WORKDIR /app
 
@@ -30,6 +28,7 @@ WORKDIR /app
 
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
+COPY --from=builder /opt/python /opt/python
 COPY --from=builder --chown=appuser:appuser /app /app
 
 ENV PATH="/app/.venv/bin:$PATH" \
