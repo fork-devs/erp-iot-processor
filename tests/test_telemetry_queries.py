@@ -57,7 +57,6 @@ def test_app(mock_timescale_repo, mock_mongo_repo):
     app = FastAPI()
     register_error_handlers(app)
     app.include_router(telemetry_queries_router, prefix="/api/v1/vehicles")
-    app.include_router(telemetry_queries_router, prefix="/api/v1/iot/vehicles")
     app.include_router(device_router)
 
     app.dependency_overrides[get_timescale_repo] = lambda: mock_timescale_repo
@@ -87,18 +86,6 @@ async def test_get_telemetry_snapshots_success(test_app: FastAPI, mock_timescale
             page=0,
             size=20,
         )
-
-
-@pytest.mark.asyncio
-async def test_get_telemetry_snapshots_dual_route(test_app: FastAPI):
-    transport = httpx.ASGITransport(app=test_app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        res = await client.get(
-            "/api/v1/iot/vehicles/11111111-1111-1111-1111-111111111111/telemetry-snapshots",
-            headers=make_auth_headers(),
-        )
-        assert res.status_code == 200
-        assert len(res.json()) == 1
 
 
 @pytest.mark.asyncio
@@ -144,18 +131,6 @@ async def test_get_dtc_alerts_success(test_app: FastAPI, mock_mongo_repo):
             size=20,
             severity="CRITICAL",
         )
-
-
-@pytest.mark.asyncio
-async def test_get_dtc_alerts_dual_route(test_app: FastAPI):
-    transport = httpx.ASGITransport(app=test_app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        res = await client.get(
-            "/api/v1/iot/vehicles/11111111-1111-1111-1111-111111111111/dtc-alerts",
-            headers=make_auth_headers(),
-        )
-        assert res.status_code == 200
-        assert len(res.json()) == 1
 
 
 @pytest.mark.asyncio

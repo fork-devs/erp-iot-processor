@@ -39,7 +39,6 @@ app.include_router(health_router)
 app.include_router(metrics_router)
 app.include_router(diagnostics_router)
 app.include_router(telemetry_queries_router, prefix="/api/v1/vehicles")
-app.include_router(telemetry_queries_router, prefix="/api/v1/iot/vehicles")
 app.include_router(device_router)
 
 
